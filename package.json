@@ -1,0 +1,8 @@
+{
+  "name": "wasl-pdf-board",
+  "version": "1.0.0",
+  "description": "Wasl PDF Modul Viewer & Live Interactive Annotation Board for Talaqqi",
+  "scripts": {
+    "start": "npx serve ."
+  }
+}
