@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Wasl Modul & Kitab Live Board</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Plus Jakarta Sans & Amiri Quran -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- PDF.js CDN (Mozilla) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  
+  <!-- Supabase JS Client for Realtime Sync -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body, html {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0B1120;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      touch-action: none;
+    }
+
+    .quran-text {
+      font-family: 'Amiri', serif;
+    }
+
+    /* Glassmorphism Styles */
+    .glass-panel {
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .glass-button {
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #E2E8F0;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .glass-button:hover, .glass-button:active {
+      background: rgba(255, 255, 255, 0.16);
+      color: #FFFFFF;
+      transform: translateY(-1px);
+    }
+
+    .glass-button.active {
+      background: #0F766E !important;
+      border-color: #14B8A6 !important;
+      color: #FFFFFF !important;
+      box-shadow: 0 0 14px rgba(20, 184, 166, 0.45);
+    }
+
+    /* Laser pointer dot glow */
+    .laser-dot {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #EF4444;
+      box-shadow: 0 0 12px #EF4444, 0 0 24px #F87171, 0 0 36px #FCA5A5;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      transition: opacity 0.3s ease-out;
+      z-index: 50;
+    }
+
+    /* Container for PDF and overlay drawing canvas */
+    #page-viewport-container {
+      position: relative;
+      display: inline-block;
+      box-shadow: 0 16px 45px rgba(0, 0, 0, 0.85);
+      border-radius: 10px;
+      overflow: hidden;
+      background: #FFFFFF; /* Kanvas Putih Bersih */
+    }
+
+    #pdf-render-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      background-color: #FFFFFF;
+    }
+
+    #drawing-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+      z-index: 20;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body class="flex flex-col w-full h-full select-none text-slate-100 bg-[#0B1120]">
+
+  <!-- ========================================================================= -->
+  <!-- TOP HEADER (Info Dokumen, Halaman & Status Sync) -->
+  <!-- ========================================================================= -->
+  <header class="flex items-center justify-between px-3 py-2 border-b border-slate-800/80 bg-slate-900/95 z-40 shrink-0 gap-2">
+    <!-- Left: Info Dokumen & Status -->
+    <div class="flex items-center gap-2 min-w-0">
+      <div class="w-8 h-8 rounded-lg bg-teal-900/50 border border-teal-500/30 flex items-center justify-center text-teal-400 shrink-0">
+        <i class="fa-solid fa-book-quran text-sm"></i>
+      </div>
+      <div class="min-w-0">
+        <h1 id="doc-title" class="text-xs font-bold text-slate-200 truncate max-w-[140px] sm:max-w-[220px]">Papan Tulis & Modul Talaqqi</h1>
+        <div class="flex items-center gap-1.5 text-[10px] text-slate-400">
+          <span id="sync-badge" class="inline-flex items-center gap-1 text-emerald-400 font-semibold truncate">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Terhubung Live
+          </span>
+          <span class="text-slate-600 hidden sm:inline">•</span>
+          <span id="role-badge" class="hidden sm:inline px-1.5 py-0.5 rounded bg-amber-900/50 text-amber-300 font-medium">Ustadz</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Page Navigator -->
+    <div class="flex items-center gap-1 bg-slate-800/90 px-2 py-1 rounded-lg border border-slate-700/70 text-xs shrink-0">
+      <button id="btn-prev-page" class="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-300 transition" title="Halaman Sebelumnya">
+        <i class="fa-solid fa-chevron-left text-[11px]"></i>
+      </button>
+      <span class="font-bold text-amber-400 min-w-[42px] text-center text-[11px]">
+        <span id="current-page-num">1</span> <span class="text-slate-500 font-normal">/</span> <span id="total-pages-num" class="text-slate-400 font-normal">1</span>
+      </span>
+      <button id="btn-next-page" class="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-300 transition" title="Halaman Berikutnya">
+        <i class="fa-solid fa-chevron-right text-[11px]"></i>
+      </button>
+    </div>
+
+    <!-- Right: Modul Picker Modal Button (Guru Only) & Zoom Controls -->
+    <div class="flex items-center gap-1.5 shrink-0">
+      <button id="btn-zoom-out" class="w-7 h-7 flex items-center justify-center rounded-lg glass-button text-slate-300 text-xs" title="Perkecil">
+        <i class="fa-solid fa-minus"></i>
+      </button>
+      <button id="btn-zoom-in" class="w-7 h-7 flex items-center justify-center rounded-lg glass-button text-slate-300 text-xs" title="Perbesar">
+        <i class="fa-solid fa-plus"></i>
+      </button>
+      
+      <!-- Tombol Pilih Modul / Kitab (Selalu Muncul untuk Guru di Semua Ukuran Layar) -->
+      <button id="btn-open-picker" class="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 active:scale-95 text-white text-[11px] sm:text-xs font-bold shadow-md transition">
+        <i class="fa-solid fa-folder-open"></i>
+        <span>Pilih Modul</span>
+      </button>
+
+      <!-- Hidden standard file input -->
+      <input type="file" id="file-input" accept="application/pdf,.pdf" class="hidden">
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- MAIN VIEWER & CANVAS AREA (KANVAS POLOS PUTIH BERSIH) -->
+  <!-- ========================================================================= -->
+  <main id="viewer-container" class="relative flex-1 w-full h-full overflow-auto flex items-center justify-center p-3 bg-[#0B1120]">
+    <!-- Loading Overlay -->
+    <div id="loading-spinner" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/75 backdrop-blur-sm transition-opacity duration-300">
+      <div class="w-10 h-10 border-3 border-teal-500/20 border-t-teal-400 rounded-full animate-spin mb-3"></div>
+      <p id="loading-text" class="text-xs text-slate-300 font-medium tracking-wide">Memuat Halaman Modul...</p>
+    </div>
+
+    <!-- Page Wrapper (White Surface, No Text Placeholder) -->
+    <div id="page-viewport-container">
+      <canvas id="pdf-render-canvas"></canvas>
+      <canvas id="drawing-canvas"></canvas>
+      <div id="laser-pointer" class="laser-dot hidden"></div>
+
+      <!-- Quick Action Card on Initial Blank Canvas (Guru Only) -->
+      <div id="blank-canvas-guide" class="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center pointer-events-auto">
+        <div class="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-teal-700 text-xl shadow-sm mb-3">
+          <i class="fa-solid fa-book-open-reader"></i>
+        </div>
+        <h2 class="text-sm font-bold text-slate-800 mb-1">Papan Tulis & Modul Pembelajaran</h2>
+        <p class="text-xs text-slate-500 max-w-xs mb-4 leading-relaxed">
+          Anda dapat langsung mencoret di atas kanvas putih ini, atau membuka Kitab Tajwid & Modul PDF.
+        </p>
+        <button id="btn-guide-open-picker" class="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold shadow-md transition active:scale-95">
+          <i class="fa-solid fa-folder-open"></i>
+          <span>Buka Pilihan Kitab & Modul</span>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- FLOATING ANNOTATION TOOLBAR (GURU ONLY) -->
+  <!-- ========================================================================= -->
+  <div id="teacher-toolbar" class="absolute bottom-3.5 left-1/2 -translate-x-1/2 z-40 glass-panel px-3 py-1.5 rounded-2xl flex items-center gap-2 shadow-2xl transition-all duration-300">
+    <!-- Tool Selector Group -->
+    <div class="flex items-center gap-1 border-r border-slate-700/60 pr-2">
+      <!-- Mode Geser / Navigate -->
+      <button data-tool="hand" class="tool-btn w-8 h-8 rounded-xl glass-button text-slate-300 flex items-center justify-center text-xs" title="Mode Geser (Scroll)">
+        <i class="fa-solid fa-hand"></i>
+      </button>
+      <!-- Pena -->
+      <button data-tool="pen" class="tool-btn w-8 h-8 rounded-xl glass-button text-slate-300 flex items-center justify-center text-xs active" title="Pena Kaligrafi / Coret">
+        <i class="fa-solid fa-pen-nib"></i>
+      </button>
+      <!-- Stabilo / Highlighter -->
+      <button data-tool="highlighter" class="tool-btn w-8 h-8 rounded-xl glass-button text-slate-300 flex items-center justify-center text-xs" title="Stabilo Tajwid (Transparan)">
+        <i class="fa-solid fa-highlighter"></i>
+      </button>
+      <!-- Laser Pointer -->
+      <button data-tool="laser" class="tool-btn w-8 h-8 rounded-xl glass-button text-slate-300 flex items-center justify-center text-xs" title="Laser Pointer Live">
+        <i class="fa-solid fa-wand-magic-sparkles text-amber-400"></i>
+      </button>
+      <!-- Penghapus -->
+      <button data-tool="eraser" class="tool-btn w-8 h-8 rounded-xl glass-button text-slate-300 flex items-center justify-center text-xs" title="Penghapus Coretan">
+        <i class="fa-solid fa-eraser"></i>
+      </button>
+    </div>
+
+    <!-- Color Palette Picker (Kontras Jelas di Atas Putih) -->
+    <div class="flex items-center gap-1.5 border-r border-slate-700/60 pr-2" id="color-palette">
+      <!-- Hitam / Navy -->
+      <button data-color="#0F172A" class="color-dot w-5 h-5 rounded-full bg-slate-900 ring-2 ring-amber-400 scale-110 transition shadow-xs" title="Hitam / Navy"></button>
+      <!-- Merah -->
+      <button data-color="#EF4444" class="color-dot w-5 h-5 rounded-full bg-rose-500 ring-1 ring-white/20 transition shadow-xs" title="Merah"></button>
+      <!-- Hijau -->
+      <button data-color="#10B981" class="color-dot w-5 h-5 rounded-full bg-emerald-500 ring-1 ring-white/20 transition shadow-xs" title="Hijau"></button>
+      <!-- Emas / Amber -->
+      <button data-color="#D97706" class="color-dot w-5 h-5 rounded-full bg-amber-600 ring-1 ring-white/20 transition shadow-xs" title="Emas"></button>
+      <!-- Biru -->
+      <button data-color="#2563EB" class="color-dot w-5 h-5 rounded-full bg-blue-600 ring-1 ring-white/20 transition shadow-xs" title="Biru"></button>
+    </div>
+
+    <!-- Undo & Clear Actions -->
+    <div class="flex items-center gap-1">
+      <button id="btn-undo" class="w-8 h-8 rounded-xl glass-button text-slate-300 hover:text-amber-400 flex items-center justify-center text-xs" title="Urungkan (Undo)">
+        <i class="fa-solid fa-rotate-left"></i>
+      </button>
+      <button id="btn-clear-page" class="w-8 h-8 rounded-xl glass-button text-slate-300 hover:text-rose-400 flex items-center justify-center text-xs" title="Hapus Semua Coretan Halaman Ini">
+        <i class="fa-solid fa-trash-can"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Santri Spectator Badge (Santri Only) -->
+  <div id="santri-indicator" class="hidden absolute bottom-3.5 left-1/2 -translate-x-1/2 z-40 glass-panel px-3.5 py-1.5 rounded-full flex items-center gap-2 text-xs font-semibold text-emerald-400 shadow-xl">
+    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+    <span>📑 Menyimak Papan Tulis / Modul Ustadz</span>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAL: PILIH MODUL & KITAB PEMBELAJARAN (GURU ONLY) -->
+  <!-- ========================================================================= -->
+  <div id="modal-doc-picker" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-md transition-opacity">
+    <div class="w-full max-w-lg bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between px-4 py-3.5 border-b border-slate-800 bg-slate-800/50">
+        <div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-lg bg-teal-500/20 border border-teal-500/30 flex items-center justify-center text-teal-400 text-xs">
+            <i class="fa-solid fa-book-open"></i>
+          </div>
+          <div>
+            <h3 class="text-xs font-bold text-white">Pilih Modul & Kitab Pembelajaran</h3>
+            <p class="text-[10px] text-slate-400">Pilih materi yang akan disinkronkan langsung ke layar Santri</p>
+          </div>
+        </div>
+        <button id="btn-close-modal" class="w-7 h-7 rounded-lg glass-button text-slate-400 hover:text-white flex items-center justify-center text-xs">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Tabs -->
+      <div class="flex border-b border-slate-800 px-4 pt-2 gap-2 bg-slate-900/60">
+        <button id="tab-btn-presets" class="tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-teal-400 text-teal-300 flex items-center gap-1.5">
+          <i class="fa-solid fa-bookmark text-[11px]"></i> Kitab Tajwid Standar
+        </button>
+        <button id="tab-btn-upload" class="tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-1.5">
+          <i class="fa-solid fa-cloud-arrow-up text-[11px]"></i> Unggah File PDF
+        </button>
+        <button id="tab-btn-blank" class="tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-1.5">
+          <i class="fa-solid fa-chalkboard text-[11px]"></i> Kanvas Putih
+        </button>
+      </div>
+
+      <!-- Modal Content Area -->
+      <div class="p-4 overflow-y-auto flex-1">
+        
+        <!-- Tab Content 1: Preset Kitab Tajwid Standar -->
+        <div id="tab-content-presets" class="space-y-2.5">
+          
+          <!-- Preset 1: Matan Al-Jazariyyah -->
+          <div class="preset-card p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/50 cursor-pointer transition flex items-center justify-between group" data-preset="jazariyyah">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 text-sm group-hover:scale-105 transition">
+                <i class="fa-solid fa-scroll"></i>
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-white group-hover:text-teal-300 transition">Matan Al-Jazariyyah (Al-Muqaddimah)</h4>
+                <p class="text-[10px] text-slate-400">Imam Ibnul Jazari • Makharij & Sifatul Huruf Lengkap</p>
+                <span class="inline-block mt-1 px-1.5 py-0.2 rounded bg-teal-900/40 text-teal-300 text-[9px] font-semibold">1-Klik Terbuka di Semua Santri</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-xs text-slate-500 group-hover:text-teal-400 transition"></i>
+          </div>
+
+          <!-- Preset 2: Matan Tuhfatul Athfal -->
+          <div class="preset-card p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/50 cursor-pointer transition flex items-center justify-between group" data-preset="tuhfah">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-sm group-hover:scale-105 transition">
+                <i class="fa-solid fa-gem"></i>
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-white group-hover:text-teal-300 transition">Matan Tuhfatul Athfal</h4>
+                <p class="text-[10px] text-slate-400">Syaikh Sulaiman Al-Jamzuri • Nun Mati, Tanwin, Mim & Mad</p>
+                <span class="inline-block mt-1 px-1.5 py-0.2 rounded bg-teal-900/40 text-teal-300 text-[9px] font-semibold">1-Klik Terbuka di Semua Santri</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-xs text-slate-500 group-hover:text-teal-400 transition"></i>
+          </div>
+
+          <!-- Preset 3: Panduan Praktis Makharijul Huruf -->
+          <div class="preset-card p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/50 cursor-pointer transition flex items-center justify-between group" data-preset="makharij">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center text-blue-400 text-sm group-hover:scale-105 transition">
+                <i class="fa-solid fa-bullhorn"></i>
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-white group-hover:text-teal-300 transition">Modul Makharijul & Sifatul Huruf Wasl</h4>
+                <p class="text-[10px] text-slate-400">Tahseena • Titik Artikulasi & Sifat Lazimah Huruf Hijaiyah</p>
+                <span class="inline-block mt-1 px-1.5 py-0.2 rounded bg-teal-900/40 text-teal-300 text-[9px] font-semibold">1-Klik Terbuka di Semua Santri</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-xs text-slate-500 group-hover:text-teal-400 transition"></i>
+          </div>
+
+          <!-- Preset 4: Kaidah Waqaf & Ibtida' -->
+          <div class="preset-card p-3 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 hover:border-teal-500/50 cursor-pointer transition flex items-center justify-between group" data-preset="waqaf">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 text-sm group-hover:scale-105 transition">
+                <i class="fa-solid fa-hand"></i>
+              </div>
+              <div>
+                <h4 class="text-xs font-bold text-white group-hover:text-teal-300 transition">Panduan Waqaf & Ibtida'</h4>
+                <p class="text-[10px] text-slate-400">Tanda Waqaf, Tempat Berhenti & Memulai Tilawah</p>
+                <span class="inline-block mt-1 px-1.5 py-0.2 rounded bg-teal-900/40 text-teal-300 text-[9px] font-semibold">1-Klik Terbuka di Semua Santri</span>
+              </div>
+            </div>
+            <i class="fa-solid fa-chevron-right text-xs text-slate-500 group-hover:text-teal-400 transition"></i>
+          </div>
+
+        </div>
+
+        <!-- Tab Content 2: Upload File PDF Sendiri -->
+        <div id="tab-content-upload" class="hidden space-y-4">
+          <div id="drop-zone" class="border-2 border-dashed border-slate-700 hover:border-teal-400/60 rounded-2xl p-6 text-center bg-slate-800/40 hover:bg-slate-800/70 transition cursor-pointer flex flex-col items-center justify-center">
+            <div class="w-12 h-12 rounded-2xl bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 text-xl mb-3">
+              <i class="fa-solid fa-file-pdf"></i>
+            </div>
+            <p class="text-xs font-bold text-white mb-1">Pilih Dokumen PDF dari Perangkat</p>
+            <p class="text-[10px] text-slate-400 max-w-xs mb-3">Klik tombol di bawah untuk memilih file PDF dari HP atau Laptop Anda.</p>
+            <button id="btn-trigger-file-dialog" class="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md transition active:scale-95">
+              <i class="fa-solid fa-folder-open mr-1"></i> Pilih File PDF
+            </button>
+          </div>
+
+          <!-- URL Input Alternative -->
+          <div class="p-3 rounded-xl bg-slate-800/50 border border-slate-700/60">
+            <label class="block text-[11px] font-bold text-slate-300 mb-1.5">Atau Buka via Link URL PDF Online:</label>
+            <div class="flex gap-2">
+              <input type="url" id="custom-url-input" placeholder="https://example.com/kitab.pdf" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-teal-400">
+              <button id="btn-load-url" class="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold">
+                Buka
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Content 3: Kanvas Polos Putih -->
+        <div id="tab-content-blank" class="hidden text-center py-4 space-y-3">
+          <div class="w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-amber-400 text-xl mx-auto">
+            <i class="fa-solid fa-chalkboard"></i>
+          </div>
+          <h4 class="text-xs font-bold text-white">Kembali ke Kanvas Polos Putih</h4>
+          <p class="text-[11px] text-slate-400 max-w-xs mx-auto">
+            Tutup modul dokumen saat ini dan gunakan papan tulis putih bersih untuk mencoret materi secara leluasa.
+          </p>
+          <button id="btn-reset-to-blank" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white text-xs font-bold shadow transition active:scale-95">
+            <i class="fa-solid fa-eraser mr-1"></i> Buka Kanvas Polos
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- JAVASCRIPT LOGIC & SUPABASE REALTIME SYNC ENGINE -->
+  <!-- ========================================================================= -->
+  <script>
+    // Set PDF.js Worker Source
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // ---------------------------------------------------------------------------
+    // 1. SUPABASE REALTIME CONFIGURATION
+    // ---------------------------------------------------------------------------
+    const SUPABASE_URL = 'https://gfcvvldfftnjkywfpkey.supabase.co';
+    const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdmY3Z2bGRmZnRuamt5d2Zwa2V5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyNDMwMDQsImV4cCI6MjEwMzgxOTAwNH0.kZU31m77De0WlCWCz78TbjDBwjdXCCmfov3gdDazHoM';
+    
+    // Parse URL Query Params (?role=guru&orgId=...&docUrl=...)
+    const urlParams = new URLSearchParams(window.location.search);
+    const userRole = (urlParams.get('role') || 'guru').toLowerCase();
+    const orgId = urlParams.get('orgId') || '0c130f47-de59-4a68-bb35-fa85758b1ceb';
+    const initialDocUrl = urlParams.get('docUrl') || '';
+    const isGuru = userRole === 'guru';
+
+    // Inisialisasi Supabase Client
+    let supabaseClient = null;
+    let realtimeChannel = null;
+
+    try {
+      supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    } catch (e) {
+      console.warn('[Wasl Board] Supabase client init fallback:', e);
+    }
+
+    // ---------------------------------------------------------------------------
+    // 2. STATE & VARIABLES
+    // ---------------------------------------------------------------------------
+    let pdfDoc = null;
+    let currentPage = 1;
+    let totalPages = 1;
+    let currentScale = 1.25;
+    let isRendering = false;
+    let pageRenderingQueue = null;
+    let isBlankCanvasMode = true;
+    let currentDocTitle = 'Papan Tulis Talaqqi';
+    let currentDocData = null; // String URL or Uint8Array
+
+    // Drawing State
+    let activeTool = 'pen'; // 'hand', 'pen', 'highlighter', 'laser', 'eraser'
+    let activeColor = '#0F172A'; // Hitam/Navy kontras jelas di atas kanvas putih
+    let isDrawing = false;
+    let currentPath = [];
+    
+    // Strokes grouped by page: { 1: [stroke1, stroke2], 2: [...] }
+    let pageStrokes = {};
+
+    // Incoming chunk transfer buffer
+    let incomingChunks = {};
+
+    // DOM Elements
+    const pdfCanvas = document.getElementById('pdf-render-canvas');
+    const pdfCtx = pdfCanvas.getContext('2d');
+    const drawCanvas = document.getElementById('drawing-canvas');
+    const drawCtx = drawCanvas.getContext('2d');
+    const viewportContainer = document.getElementById('page-viewport-container');
+    const laserElement = document.getElementById('laser-pointer');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const loadingText = document.getElementById('loading-text');
+    const blankGuide = document.getElementById('blank-canvas-guide');
+    
+    const curPageSpan = document.getElementById('current-page-num');
+    const totPagesSpan = document.getElementById('total-pages-num');
+    const btnPrevPage = document.getElementById('btn-prev-page');
+    const btnNextPage = document.getElementById('btn-next-page');
+    const btnZoomIn = document.getElementById('btn-zoom-in');
+    const btnZoomOut = document.getElementById('btn-zoom-out');
+    const btnOpenPicker = document.getElementById('btn-open-picker');
+    const fileInput = document.getElementById('file-input');
+    const teacherToolbar = document.getElementById('teacher-toolbar');
+    const santriIndicator = document.getElementById('santri-indicator');
+    const roleBadge = document.getElementById('role-badge');
+    const docTitle = document.getElementById('doc-title');
+
+    // Modal Elements
+    const modalPicker = document.getElementById('modal-doc-picker');
+    const btnCloseModal = document.getElementById('btn-close-modal');
+    const tabBtnPresets = document.getElementById('tab-btn-presets');
+    const tabBtnUpload = document.getElementById('tab-btn-upload');
+    const tabBtnBlank = document.getElementById('tab-btn-blank');
+    const tabContentPresets = document.getElementById('tab-content-presets');
+    const tabContentUpload = document.getElementById('tab-content-upload');
+    const tabContentBlank = document.getElementById('tab-content-blank');
+    const btnTriggerFileDialog = document.getElementById('btn-trigger-file-dialog');
+    const btnGuideOpenPicker = document.getElementById('btn-guide-open-picker');
+    const btnResetToBlank = document.getElementById('btn-reset-to-blank');
+    const btnLoadUrl = document.getElementById('btn-load-url');
+    const customUrlInput = document.getElementById('custom-url-input');
+
+    // UI Role Setup
+    if (!isGuru) {
+      teacherToolbar.classList.add('hidden');
+      santriIndicator.classList.remove('hidden');
+      btnOpenPicker.classList.add('!hidden');
+      roleBadge.textContent = 'Santri (Menyimak)';
+      roleBadge.className = 'px-1.5 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-medium text-[10px]';
+      drawCanvas.style.pointerEvents = 'none'; // Santri 100% Spectator
+      blankGuide.classList.add('hidden'); // Santri tidak butuh tombol buka modul
+    } else {
+      roleBadge.textContent = 'Ustadz (Guru)';
+      roleBadge.className = 'px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 font-medium text-[10px]';
+    }
+
+    // ---------------------------------------------------------------------------
+    // 3. PDF RENDERING ENGINE
+    // ---------------------------------------------------------------------------
+    function loadPdfDocument(source, title = 'Modul Talaqqi', targetPage = 1) {
+      showLoading(true, 'Memuat Modul...');
+      isBlankCanvasMode = false;
+      blankGuide.classList.add('hidden');
+      currentDocTitle = title;
+      docTitle.textContent = title;
+      currentDocData = source;
+
+      const loadingTask = (typeof source === 'string') 
+        ? pdfjsLib.getDocument({ url: source, cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/', cMapPacked: true })
+        : pdfjsLib.getDocument({ data: source });
+
+      loadingTask.promise.then(function(pdf) {
+        pdfDoc = pdf;
+        totalPages = pdf.numPages;
+        totPagesSpan.textContent = totalPages;
+        currentPage = Math.min(targetPage, totalPages);
+        renderPage(currentPage);
+      }).catch(function(error) {
+        console.error('[Wasl PDF] Gagal memuat PDF:', error);
+        showLoading(false);
+        createBlankWhiteCanvas();
+      });
+    }
+
+    function renderPage(pageNum) {
+      if (isBlankCanvasMode || !pdfDoc) {
+        createBlankWhiteCanvas();
+        return;
+      }
+
+      if (isRendering) {
+        pageRenderingQueue = pageNum;
+        return;
+      }
+      isRendering = true;
+      showLoading(true, 'Menyiapkan Halaman ' + pageNum + '...');
+
+      pdfDoc.getPage(pageNum).then(function(page) {
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        
+        // Sesuaikan skala agar fit optimal di container
+        const container = document.getElementById('viewer-container');
+        const containerWidth = Math.max(300, container.clientWidth - 24);
+        const containerHeight = Math.max(300, container.clientHeight - 24);
+        
+        const scaleX = containerWidth / unscaledViewport.width;
+        const scaleY = containerHeight / unscaledViewport.height;
+        const fitScale = Math.min(scaleX, scaleY, 2.2);
+        
+        const viewport = page.getViewport({ scale: fitScale * currentScale });
+        const dpr = Math.min(window.devicePixelRatio || 1.0, 1.75);
+
+        pdfCanvas.width = Math.floor(viewport.width * dpr);
+        pdfCanvas.height = Math.floor(viewport.height * dpr);
+        pdfCanvas.style.width = Math.floor(viewport.width) + 'px';
+        pdfCanvas.style.height = Math.floor(viewport.height) + 'px';
+
+        drawCanvas.width = Math.floor(viewport.width * dpr);
+        drawCanvas.height = Math.floor(viewport.height * dpr);
+        drawCanvas.style.width = Math.floor(viewport.width) + 'px';
+        drawCanvas.style.height = Math.floor(viewport.height) + 'px';
+
+        viewportContainer.style.width = Math.floor(viewport.width) + 'px';
+        viewportContainer.style.height = Math.floor(viewport.height) + 'px';
+
+        const renderContext = {
+          canvasContext: pdfCtx,
+          viewport: viewport,
+          transform: [dpr, 0, 0, dpr, 0, 0]
+        };
+
+        const renderTask = page.render(renderContext);
+        renderTask.promise.then(function() {
+          isRendering = false;
+          showLoading(false);
+          curPageSpan.textContent = pageNum;
+          updatePageButtons();
+          
+          // Re-draw coretan di halaman ini
+          redrawCurrentPageStrokes();
+
+          if (pageRenderingQueue !== null) {
+            const nextP = pageRenderingQueue;
+            pageRenderingQueue = null;
+            renderPage(nextP);
+          }
+        });
+      });
+    }
+
+    function showLoading(show, text = 'Memuat...') {
+      loadingText.textContent = text;
+      if (show) {
+        loadingSpinner.classList.remove('opacity-0', 'pointer-events-none');
+      } else {
+        loadingSpinner.classList.add('opacity-0', 'pointer-events-none');
+      }
+    }
+
+    function updatePageButtons() {
+      btnPrevPage.disabled = (currentPage <= 1);
+      btnNextPage.disabled = (currentPage >= totalPages);
+    }
+
+    function goToPage(pageNum) {
+      if (pageNum < 1 || pageNum > totalPages || pageNum === currentPage) return;
+      currentPage = pageNum;
+      renderPage(currentPage);
+      if (isGuru) {
+        broadcastEvent('page_change', { page: currentPage });
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // 4. PRESET GENERATOR (KITAB TAJWID STANDAR)
+    // ---------------------------------------------------------------------------
+    function openPresetKitab(presetKey) {
+      showLoading(true, 'Membuka Kitab...');
+      closeModal();
+      
+      let title = 'Kitab Tajwid';
+      let pagesContent = [];
+
+      if (presetKey === 'jazariyyah') {
+        title = 'Matan Al-Jazariyyah';
+        pagesContent = [
+          {
+            header: 'مَقْدَمَةُ ابْنِ الجَزَرِيِّ - فِي عِلْمِ التَّجْوِيدِ',
+            sub: 'Halaman 1: Mukaddimah & Bab Makharijul Huruf',
+            lines: [
+              'يَقُولُ رَاجِي عَفْوِ رَبٍّ سَامِعِ • مُحَمَّدُ بْنُ الْجَزَرِيِّ الشَّافِعِي',
+              'الْحَمْدُ لِلَّهِ وَصَلَّى اللَّهُ • عَلَى نَبِيِّهِ وَمُصْطَفَاهُ',
+              'مُحَمَّدٍ وَآلِهِ وَصَحْبِهِ • وَمُقْرِئِ الْقُرْآنِ مَعْ مُحِبِّهِ',
+              'وَبَعْدُ إِنَّ هَذِهِ مُقَدِّمَهْ • فِيمَا عَلَى قَارِئِهِ أَنْ يَعْلَمَهْ',
+              'إِذْ وَاجِبٌ عَلَيْهِمُ مُحَتَّمُ • قَبْلَ الشُّرُوعِ أَوَّلًا أَنْ يَعْلَمُوا',
+              'مَخَارِجَ الْحُرُوفِ وَالصِّفَاتِ • لِيَلْفِظُوا بِأَفْصَحِ اللُّغَاتِ',
+              'مُحَرِّرِي التَّجْوِيدِ وَالمَوَاقِفِ • وَمَا الَّذِي رُسِّمَ فِي المَصَاحِفِ'
+            ]
+          },
+          {
+            header: 'بَابُ مَخَارِجِ الحُرُوفِ',
+            sub: 'Halaman 2: Rincian 17 Tempat Keluarnya Huruf',
+            lines: [
+              'مَخَارِجُ الحُرُوفِ سَبْعَةَ عَشَرْ • عَلَى الَّذِي يَخْتَارُهُ مَنِ اخْتَبَرْ',
+              'فَأَلِفُ الجَوْفِ وَأُخْتَاهَا وَهِي • حُرُوفُ مَدٍّ لِلْهَوَاءِ تَنْتَهِي',
+              'ثُمَّ لِأَقْصَى الحَلْقِ هَمْزٌ هَاءُ • وَمِنْ وَسَطِهِ فَعَيْنٌ حَاءُ',
+              'أَدْنَاهُ غَيْنٌ خَاؤُهَا وَالقَافُ • أَقْصَى اللِّسَانِ فَوْقُ ثُمَّ الكَافُ',
+              'أَسْفَلُ وَالوَسْطُ فَجِيمُ الشِّينُ يَا • وَالضَّادُ مِنْ حَافَتِهِ إِذْ وَلِيَا',
+              'الْأَضْرَاسَ مِنْ أَيْسَرَ أَوْ يُمْنَاهَا • وَاللاَّمُ أَدْنَاهَا لِمُنْتَهَاهَا'
+            ]
+          },
+          {
+            header: 'بَابُ صِفَاتِ الحُرُوفِ',
+            sub: 'Halaman 3: Sifat Huruf Berpasangan & Tunggal',
+            lines: [
+              'صِفَاتُهَا جَهْرٌ وَرِخْوٌ مُسْتَفِلْ • مُنْفَتِحٌ مُصْمَتَةٌ وَالضِّدَّ قُلْ',
+              'مَهْمُوسُهَا (فَحَثَّهُ شَخْصٌ سَكَتْ) • شَدِيدُهَا لَفْظُ (أَجِدْ قَطٍ بَكَتْ)',
+              'وَبَيْنَ رِخْوٍ وَالشَّدِيدِ (لِنْ عُمَرْ) • وَسَبْعُ عُلْوٍ (خُصَّ ضَغْطٍ قِظْ) حَصَرْ',
+              'وَصَادُ ضَادٌ طَاءُ ظَاءٌ مُطْبَقَهْ • وَ(فِرَّ مِنْ لُبٍّ) الحُرُوفُ المُذْلَقَهْ',
+              'صَفِيرُهَا صَادٌ وَزَايٌ سِينُ • قَلْقَلَةٌ (قُطْبُ جَدٍ) وَاللِّينُ'
+            ]
+          }
+        ];
+      } else if (presetKey === 'tuhfah') {
+        title = 'Matan Tuhfatul Athfal';
+        pagesContent = [
+          {
+            header: 'مَتْنُ تُحْفَةِ الأَطْفَالِ - لِلْجَمْزُورِي',
+            sub: 'Halaman 1: Muqaddimah & Hukum Nun Sukun / Tanwin',
+            lines: [
+              'يَقُولُ رَاجِي رَحْمَةِ الْغَفُورِ • دَوْمًا سُلَيْمَانُ هُوَ الْجَمْزُورِي',
+              'الْحَمْدُ لِلَّهِ مُصَلِّيًا عَلَى • مُحَمَّدٍ وَآلِهِ وَمَنْ تَلَا',
+              'وَبَعْدُ: هَذَا النَّظْمُ لِلْمُرِيدِ • فِي النُّونِ وَالتَّنْوِينِ وَالْمُدُودِ',
+              'سَمَّيْتُهُ بِتُحْفَةِ الأَطْفَالِ • عَنْ شَيْخِنَا الْمِيهِيِّ ذِي الْكَمَالِ',
+              'لِلنُّونِ إِنْ تَسْكُنْ وَلِلتَّنْوِينِ • أَرْبَعُ أَحْكَامٍ فَخُذْ تَبْيِينِي',
+              'فَالأَوَّلُ الإِظْهَارُ قَبْلَ أَحْرُفِ • لِلْحَلْقِ سِتٌّ رُتِّبَتْ فَلْتَعْرِفِ',
+              'هَمْزٌ فَهَاءٌ ثُمَّ عَيْنٌ حَاءُ • مُهْمَلَتَانِ ثُمَّ غَيْنٌ خَاءُ'
+            ]
+          },
+          {
+            header: 'أَحْكَامُ الإِدْغَامِ وَالإِقْلَابِ وَالإِخْفَاءِ',
+            sub: 'Halaman 2: Idgham Bighunnah, Bilaghunnah & Ikhfa',
+            lines: [
+              'وَالثَّانِ إِدْغَامٌ بِسِتَّةٍ أَتَتْ • فِي (يَرْمُلُونَ) عِنْدَهُمْ قَدْ ثَبَتَتْ',
+              'لَكِنَّهَا قِسْمَانِ قِسْمٌ يُدْغَمَا • فِيهِ بِغُنَّةٍ بِـ (يَنْمُو) عُلِمَا',
+              'إِلَّا إِذَا كَانَا بِكِلْمَةٍ فَلَا • تُدْغِمْ كَدُنْيَا ثُمَّ صِنْوَانٍ تَلَا',
+              'وَالثَّانِ إِدْغَامٌ بِغَيْرِ غُنَّهْ • فِي اللَّامِ وَالرَّا ثُمَّ كَرِّرَنَّهْ',
+              'وَالثَّالِثُ الإِقْلَابُ عِنْدَ البَاءِ • مِيمًا بِغُنَّةٍ مَعَ الإِخْفَاءِ',
+              'وَالرَّابِعُ الإِخْفَاءُ عِنْدَ الفَاضِلِ • مِنَ الحُرُوفِ وَاجِبٌ لِلْفَاضِلِ'
+            ]
+          }
+        ];
+      } else if (presetKey === 'makharij') {
+        title = 'Modul Makharijul Huruf';
+        pagesContent = [
+          {
+            header: 'PANDUAN LENGKAP MAKHARIJUL HURUF (WASL)',
+            sub: '5 Makhraj Utama & Distribusi 17 Titik Huruf',
+            lines: [
+              '1. AL-JAUF (Rongga Mulut & Tenggorokan) : Huruf Mad ( ا , و , ي )',
+              '2. AL-HALQ (Tenggorokan) :',
+              '   • Aqshal Halq (Pangkal) : ء , هـ',
+              '   • Wasathul Halq (Tengah) : ع , ح',
+              '   • Adnal Halq (Ujung) : غ , خ',
+              '3. AL-LISAN (Lidah - 10 Makhraj, 18 Huruf) :',
+              '   • Pangkal Lidah Atas : ق  | Pangkal Bawah : ك',
+              '   • Tengah Lidah : ج , ش , ي',
+              '   • Tepi Lidah : ض  | Ujung Tepi : ل , ن , ر',
+              '   • Ujung Lidah & Pangkal Gigi Seri : ط , د , ت',
+              '   • Ujung Lidah & Ujung Gigi Seri : ظ , ذ , ث',
+              '   • Ujung Lidah & Atas Gigi Seri Bawah : ص , ز , س'
+            ]
+          },
+          {
+            header: '4. ASY-SYAFATAIN (Dua Bibir) & 5. AL-KHAISYUM',
+            sub: 'Rincian Bibir & Rongga Hidung (Ghunnah)',
+            lines: [
+              '• Bibir Bawah & Ujung Gigi Seri Atas : ف',
+              '• Kedua Bibir Merapat (Kuat) : ب , م',
+              '• Kedua Bibir Membulat : و (Ghairu Mad)',
+              '5. AL-KHAISYUM (Rongga Hidung) :',
+              '   • Suara Ghunnah (Dengung) pada Nun (ن) dan Mim (م) bertasydid / ikhfa / idgham.'
+            ]
+          }
+        ];
+      } else {
+        title = "Kaidah Waqaf & Ibtida'";
+        pagesContent = [
+          {
+            header: "PANDUAN WAQAF & IBTIDA' TALAQQI",
+            sub: 'Halaman 1: Macam-Macam Tanda Waqaf Mushaf',
+            lines: [
+              '• ( مـ ) Waqaf Lazim : Wajib berhenti untuk menjaga makna ayat.',
+              '• ( لا ) Waqaf Mamnu : Dilarang berhenti jika bukan di akhir ayat.',
+              '• ( ج ) Waqaf Jaiz : Boleh berhenti, boleh lanjut.',
+              '• ( صلى ) Al-Washlu Aula : Melanjutkan bacaan lebih utama.',
+              '• ( قلى ) Al-Waqfu Aula : Berhenti lebih utama.',
+              '• ( ∴ ∴ ) Waqaf Mu’anaqah : Boleh berhenti di salah satu tanda, tidak keduanya.'
+            ]
+          }
+        ];
+      }
+
+      // Render preset virtual document to canvas
+      renderPresetPages(title, pagesContent);
+
+      // Guru broadcast preset data ke semua santri
+      if (isGuru) {
+        broadcastEvent('load_preset', { presetKey: presetKey, title: title, totalPages: pagesContent.length });
+      }
+    }
+
+    function renderPresetPages(title, pagesContent) {
+      isBlankCanvasMode = false;
+      blankGuide.classList.add('hidden');
+      currentDocTitle = title;
+      docTitle.textContent = title;
+      totalPages = pagesContent.length;
+      totPagesSpan.textContent = totalPages;
+      currentPage = 1;
+
+      pdfDoc = {
+        numPages: totalPages,
+        getPage: function(num) {
+          const pageData = pagesContent[num - 1] || pagesContent[0];
+          return Promise.resolve({
+            getViewport: function({ scale }) {
+              return { width: 595 * scale, height: 842 * scale };
+            },
+            render: function(renderCtx) {
+              const ctx = renderCtx.canvasContext;
+              const w = 595;
+              const h = 842;
+              const dpr = Math.min(window.devicePixelRatio || 1.0, 1.75);
+
+              ctx.save();
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, w * dpr, h * dpr);
+              ctx.scale(dpr, dpr);
+
+              // Header Bar Dekoratif
+              ctx.fillStyle = '#0F172A';
+              ctx.fillRect(20, 20, w - 40, 65);
+              
+              ctx.fillStyle = '#14B8A6';
+              ctx.fillRect(20, 83, w - 40, 4);
+
+              ctx.fillStyle = '#FFFFFF';
+              ctx.font = 'bold 15px "Plus Jakarta Sans", sans-serif';
+              ctx.textAlign = 'center';
+              ctx.fillText(pageData.header, w / 2, 48);
+
+              ctx.fillStyle = '#F59E0B';
+              ctx.font = '600 11px "Plus Jakarta Sans", sans-serif';
+              ctx.fillText(pageData.sub, w / 2, 68);
+
+              // Content Lines
+              ctx.fillStyle = '#1E293B';
+              ctx.textAlign = 'center';
+              
+              let startY = 130;
+              pageData.lines.forEach((line, idx) => {
+                // Card Box for each line
+                ctx.fillStyle = (idx % 2 === 0) ? '#F8FAFC' : '#FFFFFF';
+                ctx.strokeStyle = '#E2E8F0';
+                ctx.lineWidth = 1;
+                
+                const boxY = startY - 22;
+                const boxH = 46;
+                ctx.beginPath();
+                ctx.roundRect(30, boxY, w - 60, boxH, 8);
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = '#0F172A';
+                ctx.font = 'bold 16px "Amiri", serif';
+                ctx.fillText(line, w / 2, startY + 5);
+
+                startY += 54;
+              });
+
+              // Footer Note
+              ctx.fillStyle = '#94A3B8';
+              ctx.font = '500 10px "Plus Jakarta Sans", sans-serif';
+              ctx.fillText('Wasl Talaqqi Interactive Board • ' + title + ' (Hal ' + num + ' dari ' + totalPages + ')', w / 2, h - 25);
+
+              ctx.restore();
+              return { promise: Promise.resolve() };
+            }
+          });
+        }
+      };
+
+      renderPage(currentPage);
+    }
+
+    // ---------------------------------------------------------------------------
+    // 5. INTERACTIVE DRAWING & ANNOTATION ENGINE
+    // ---------------------------------------------------------------------------
+    function getNormalizedPos(e) {
+      const rect = drawCanvas.getBoundingClientRect();
+      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+      
+      const normX = (clientX - rect.left) / rect.width;
+      const normY = (clientY - rect.top) / rect.height;
+      return {
+        x: Math.max(0, Math.min(1.0, normX)),
+        y: Math.max(0, Math.min(1.0, normY))
+      };
+    }
+
+    function startDrawing(e) {
+      if (!isGuru || activeTool === 'hand') return;
+      e.preventDefault();
+      const pos = getNormalizedPos(e);
+
+      if (activeTool === 'laser') {
+        updateLaserPointer(pos.x, pos.y);
+        broadcastEvent('laser_move', { x: pos.x, y: pos.y, active: true });
+        return;
+      }
+
+      if (activeTool === 'eraser') {
+        eraseStrokeAt(pos.x, pos.y);
+        return;
+      }
+
+      isDrawing = true;
+      currentPath = [pos];
+    }
+
+    function drawMove(e) {
+      if (!isGuru) return;
+      const pos = getNormalizedPos(e);
+
+      if (activeTool === 'laser') {
+        updateLaserPointer(pos.x, pos.y);
+        broadcastEvent('laser_move', { x: pos.x, y: pos.y, active: true });
+        return;
+      }
+
+      if (!isDrawing) return;
+      e.preventDefault();
+      currentPath.push(pos);
+      renderStrokeImmediate(currentPath, activeTool, activeColor);
+    }
+
+    function endDrawing(e) {
+      if (!isGuru) return;
+      
+      if (activeTool === 'laser') {
+        setTimeout(() => {
+          laserElement.classList.add('hidden');
+          broadcastEvent('laser_move', { x: 0, y: 0, active: false });
+        }, 1200);
+        return;
+      }
+
+      if (!isDrawing) return;
+      isDrawing = false;
+
+      if (currentPath.length > 1) {
+        const strokeObject = {
+          id: 's_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+          tool: activeTool,
+          color: activeColor,
+          points: currentPath,
+          page: currentPage
+        };
+
+        if (!pageStrokes[currentPage]) {
+          pageStrokes[currentPage] = [];
+        }
+        pageStrokes[currentPage].push(strokeObject);
+        redrawCurrentPageStrokes();
+
+        broadcastEvent('stroke_add', { stroke: strokeObject, page: currentPage });
+      }
+      currentPath = [];
+    }
+
+    function redrawCurrentPageStrokes() {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      const strokes = pageStrokes[currentPage] || [];
+      strokes.forEach(stroke => {
+        renderNormalizedStroke(drawCtx, stroke);
+      });
+    }
+
+    function renderStrokeImmediate(points, tool, color) {
+      if (points.length < 2) return;
+      renderNormalizedStroke(drawCtx, { tool: tool, color: color, points: points });
+    }
+
+    function renderNormalizedStroke(ctx, stroke) {
+      const points = stroke.points;
+      if (!points || points.length < 2) return;
+
+      const dpr = Math.min(window.devicePixelRatio || 1.0, 1.75);
+      const w = drawCanvas.width;
+      const h = drawCanvas.height;
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
+      if (stroke.tool === 'highlighter') {
+        ctx.strokeStyle = stroke.color;
+        ctx.globalAlpha = 0.38;
+        ctx.lineWidth = 18 * dpr;
+      } else {
+        ctx.strokeStyle = stroke.color;
+        ctx.globalAlpha = 1.0;
+        ctx.lineWidth = 3.5 * dpr;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(points[0].x * w, points[0].y * h);
+
+      for (let i = 1; i < points.length - 1; i++) {
+        const xc = (points[i].x * w + points[i + 1].x * w) / 2;
+        const yc = (points[i].y * h + points[i + 1].y * h) / 2;
+        ctx.quadraticCurveTo(points[i].x * w, points[i].y * h, xc, yc);
+      }
+
+      const lastIdx = points.length - 1;
+      ctx.lineTo(points[lastIdx].x * w, points[lastIdx].y * h);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    function eraseStrokeAt(normX, normY) {
+      const strokes = pageStrokes[currentPage] || [];
+      const threshold = 0.04;
+      
+      const remaining = strokes.filter(stroke => {
+        const hit = stroke.points.some(p => Math.hypot(p.x - normX, p.y - normY) < threshold);
+        return !hit;
+      });
+
+      if (remaining.length !== strokes.length) {
+        pageStrokes[currentPage] = remaining;
+        redrawCurrentPageStrokes();
+        broadcastEvent('page_strokes_sync', { page: currentPage, strokes: remaining });
+      }
+    }
+
+    function undoLastStroke() {
+      const strokes = pageStrokes[currentPage] || [];
+      if (strokes.length > 0) {
+        strokes.pop();
+        redrawCurrentPageStrokes();
+        broadcastEvent('page_strokes_sync', { page: currentPage, strokes: strokes });
+      }
+    }
+
+    function clearCurrentPageStrokes() {
+      pageStrokes[currentPage] = [];
+      redrawCurrentPageStrokes();
+      broadcastEvent('page_strokes_sync', { page: currentPage, strokes: [] });
+    }
+
+    function updateLaserPointer(normX, normY) {
+      const rect = drawCanvas.getBoundingClientRect();
+      const pixelX = normX * rect.width;
+      const pixelY = normY * rect.height;
+
+      laserElement.style.left = pixelX + 'px';
+      laserElement.style.top = pixelY + 'px';
+      laserElement.classList.remove('hidden');
+    }
+
+    // Attach Event Listeners to Drawing Canvas
+    drawCanvas.addEventListener('mousedown', startDrawing);
+    drawCanvas.addEventListener('mousemove', drawMove);
+    window.addEventListener('mouseup', endDrawing);
+
+    drawCanvas.addEventListener('touchstart', startDrawing, { passive: false });
+    drawCanvas.addEventListener('touchmove', drawMove, { passive: false });
+    window.addEventListener('touchend', endDrawing);
+
+    // ---------------------------------------------------------------------------
+    // 6. REALTIME SYNC ENGINE (SUPABASE BROADCAST)
+    // ---------------------------------------------------------------------------
+    function initRealtimeSync() {
+      if (!supabaseClient) return;
+
+      realtimeChannel = supabaseClient.channel(`talaqqi_pdf_${orgId}`, {
+        config: { broadcast: { self: false } }
+      });
+
+      realtimeChannel
+        .on('broadcast', { event: 'pdf_sync' }, payload => {
+          handleIncomingSync(payload.payload);
+        })
+        .subscribe(status => {
+          if (status === 'SUBSCRIBED') {
+            document.getElementById('sync-badge').innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Terhubung Live';
+            
+            // Santri minta state dari Guru saat baru bergabung
+            if (!isGuru) {
+              broadcastEvent('request_state', {});
+            }
+          }
+        });
+    }
+
+    function broadcastEvent(action, data) {
+      if (!realtimeChannel) return;
+      realtimeChannel.send({
+        type: 'broadcast',
+        event: 'pdf_sync',
+        payload: {
+          action: action,
+          senderRole: userRole,
+          timestamp: Date.now(),
+          ...data
+        }
+      });
+    }
+
+    function handleIncomingSync(data) {
+      if (!data || !data.action) return;
+
+      switch (data.action) {
+        case 'load_doc':
+          if (!isGuru && data.url) {
+            loadPdfDocument(data.url, data.fileName || 'Modul Talaqqi', data.page || 1);
+          }
+          break;
+
+        case 'load_preset':
+          if (!isGuru && data.presetKey) {
+            openPresetKitab(data.presetKey);
+          }
+          break;
+
+        case 'doc_transfer_chunk':
+          if (!isGuru) {
+            handleIncomingDocChunk(data);
+          }
+          break;
+
+        case 'reset_blank':
+          if (!isGuru) {
+            createBlankWhiteCanvas();
+          }
+          break;
+
+        case 'page_change':
+          if (!isGuru && data.page && data.page !== currentPage) {
+            currentPage = data.page;
+            renderPage(currentPage);
+          }
+          break;
+
+        case 'stroke_add':
+          if (!isGuru && data.stroke && data.page) {
+            if (!pageStrokes[data.page]) pageStrokes[data.page] = [];
+            pageStrokes[data.page].push(data.stroke);
+            if (data.page === currentPage) {
+              redrawCurrentPageStrokes();
+            }
+          }
+          break;
+
+        case 'page_strokes_sync':
+          if (!isGuru && data.page) {
+            pageStrokes[data.page] = data.strokes || [];
+            if (data.page === currentPage) {
+              redrawCurrentPageStrokes();
+            }
+          }
+          break;
+
+        case 'laser_move':
+          if (!isGuru) {
+            if (data.active) {
+              updateLaserPointer(data.x, data.y);
+            } else {
+              laserElement.classList.add('hidden');
+            }
+          }
+          break;
+
+        case 'request_state':
+          if (isGuru) {
+            broadcastEvent('state_response', {
+              isBlank: isBlankCanvasMode,
+              title: currentDocTitle,
+              currentPage: currentPage,
+              totalPages: totalPages,
+              allStrokes: pageStrokes,
+              docUrl: (typeof currentDocData === 'string') ? currentDocData : null
+            });
+          }
+          break;
+
+        case 'state_response':
+          if (!isGuru) {
+            if (data.allStrokes) pageStrokes = data.allStrokes;
+            if (data.isBlank) {
+              createBlankWhiteCanvas();
+            } else if (data.docUrl) {
+              loadPdfDocument(data.docUrl, data.title || 'Modul Talaqqi', data.currentPage || 1);
+            } else if (data.currentPage && data.currentPage !== currentPage) {
+              currentPage = data.currentPage;
+              renderPage(currentPage);
+            } else {
+              redrawCurrentPageStrokes();
+            }
+          }
+          break;
+      }
+    }
+
+    // Chunk Transfer Handler (Untuk file PDF lokal Guru -> Santri)
+    function handleIncomingDocChunk(data) {
+      if (!incomingChunks[data.transferId]) {
+        incomingChunks[data.transferId] = {
+          total: data.totalChunks,
+          chunks: [],
+          title: data.fileName
+        };
+        showLoading(true, 'Menerima Modul dari Ustadz...');
+      }
+
+      incomingChunks[data.transferId].chunks[data.chunkIndex] = data.chunkData;
+      
+      const receivedCount = incomingChunks[data.transferId].chunks.filter(Boolean).length;
+      if (receivedCount === data.totalChunks) {
+        // Gabungkan seluruh chunk
+        const fullBase64 = incomingChunks[data.transferId].chunks.join('');
+        const binaryStr = atob(fullBase64);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        delete incomingChunks[data.transferId];
+        loadPdfDocument(bytes, data.fileName, 1);
+      }
+    }
+
+    // ---------------------------------------------------------------------------
+    // 7. INITIAL BLANK WHITE CANVAS
+    // ---------------------------------------------------------------------------
+    function createBlankWhiteCanvas() {
+      showLoading(false);
+      isBlankCanvasMode = true;
+      pdfDoc = null;
+      totalPages = 1;
+      currentPage = 1;
+      curPageSpan.textContent = '1';
+      totPagesSpan.textContent = '1';
+      docTitle.textContent = 'Papan Tulis Talaqqi';
+      updatePageButtons();
+
+      if (isGuru) {
+        blankGuide.classList.remove('hidden');
+      } else {
+        blankGuide.classList.add('hidden');
+      }
+
+      const w = 595;
+      const h = 842; // Rasio A4 Portrait
+      const dpr = Math.min(window.devicePixelRatio || 1.0, 1.75);
+
+      pdfCanvas.width = w * dpr;
+      pdfCanvas.height = h * dpr;
+      pdfCanvas.style.width = w + 'px';
+      pdfCanvas.style.height = h + 'px';
+
+      drawCanvas.width = w * dpr;
+      drawCanvas.height = h * dpr;
+      drawCanvas.style.width = w + 'px';
+      drawCanvas.style.height = h + 'px';
+
+      viewportContainer.style.width = w + 'px';
+      viewportContainer.style.height = h + 'px';
+
+      pdfCtx.save();
+      pdfCtx.scale(dpr, dpr);
+      pdfCtx.fillStyle = '#FFFFFF';
+      pdfCtx.fillRect(0, 0, w, h);
+      pdfCtx.restore();
+
+      redrawCurrentPageStrokes();
+    }
+
+    // ---------------------------------------------------------------------------
+    // 8. FILE UPLOAD & CHUNK TRANSMITTER (GURU -> SANTRI)
+    // ---------------------------------------------------------------------------
+    function transmitLocalPdfFile(file) {
+      showLoading(true, 'Menyiapkan & Mengunggah Modul...');
+      closeModal();
+      
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        const arrayBuffer = evt.target.result;
+        const uint8Array = new Uint8Array(arrayBuffer);
+        
+        // 1. Render lokal di sisi Guru
+        loadPdfDocument(uint8Array, file.name, 1);
+
+        // 2. Transmit Base64 Chunks ke Santri (32KB per chunk)
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        const base64String = btoa(binary);
+
+        const chunkSize = 30000; // 30KB per broadcast chunk
+        const totalChunks = Math.ceil(base64String.length / chunkSize);
+        const transferId = 't_' + Date.now();
+
+        for (let i = 0; i < totalChunks; i++) {
+          const chunkData = base64String.substring(i * chunkSize, (i + 1) * chunkSize);
+          setTimeout(() => {
+            broadcastEvent('doc_transfer_chunk', {
+              transferId: transferId,
+              fileName: file.name,
+              chunkIndex: i,
+              totalChunks: totalChunks,
+              chunkData: chunkData
+            });
+          }, i * 35); // 35ms throttle interval
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    // ---------------------------------------------------------------------------
+    // 9. MODAL & UI EVENT LISTENERS
+    // ---------------------------------------------------------------------------
+    function openModal() {
+      modalPicker.classList.remove('hidden');
+    }
+
+    function closeModal() {
+      modalPicker.classList.add('hidden');
+    }
+
+    btnOpenPicker.addEventListener('click', openModal);
+    btnCloseModal.addEventListener('click', closeModal);
+    btnGuideOpenPicker.addEventListener('click', openModal);
+
+    // Modal Tabs Switching
+    function setTab(activeTab) {
+      [tabBtnPresets, tabBtnUpload, tabBtnBlank].forEach(b => {
+        b.className = 'tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-1.5';
+      });
+      [tabContentPresets, tabContentUpload, tabContentBlank].forEach(c => c.classList.add('hidden'));
+
+      if (activeTab === 'presets') {
+        tabBtnPresets.className = 'tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-teal-400 text-teal-300 flex items-center gap-1.5';
+        tabContentPresets.classList.remove('hidden');
+      } else if (activeTab === 'upload') {
+        tabBtnUpload.className = 'tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-teal-400 text-teal-300 flex items-center gap-1.5';
+        tabContentUpload.classList.remove('hidden');
+      } else if (activeTab === 'blank') {
+        tabBtnBlank.className = 'tab-btn px-3 py-1.5 text-xs font-bold border-b-2 border-teal-400 text-teal-300 flex items-center gap-1.5';
+        tabContentBlank.classList.remove('hidden');
+      }
+    }
+
+    tabBtnPresets.addEventListener('click', () => setTab('presets'));
+    tabBtnUpload.addEventListener('click', () => setTab('upload'));
+    tabBtnBlank.addEventListener('click', () => setTab('blank'));
+
+    // Preset Cards Click
+    document.querySelectorAll('.preset-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const presetKey = card.dataset.preset;
+        openPresetKitab(presetKey);
+      });
+    });
+
+    // File Picker Triggers
+    btnTriggerFileDialog.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+
+    document.getElementById('drop-zone').addEventListener('click', () => {
+      fileInput.click();
+    });
+
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file && (file.type === 'application/pdf' || file.name.endsWith('.pdf'))) {
+        transmitLocalPdfFile(file);
+      }
+    });
+
+    // Reset to Blank Whiteboard
+    btnResetToBlank.addEventListener('click', () => {
+      closeModal();
+      createBlankWhiteCanvas();
+      if (isGuru) {
+        broadcastEvent('reset_blank', {});
+      }
+    });
+
+    // Load custom URL
+    btnLoadUrl.addEventListener('click', () => {
+      const url = customUrlInput.value.trim();
+      if (url && url.startsWith('http')) {
+        closeModal();
+        loadPdfDocument(url, 'Modul Online');
+        if (isGuru) {
+          broadcastEvent('load_doc', { url: url, fileName: 'Modul Online' });
+        }
+      }
+    });
+
+    // Tool Buttons
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTool = btn.dataset.tool;
+
+        if (activeTool === 'hand') {
+          drawCanvas.style.cursor = 'grab';
+        } else if (activeTool === 'laser') {
+          drawCanvas.style.cursor = 'crosshair';
+        } else if (activeTool === 'eraser') {
+          drawCanvas.style.cursor = 'cell';
+        } else {
+          drawCanvas.style.cursor = 'crosshair';
+        }
+      });
+    });
+
+    // Color Palette
+    document.querySelectorAll('.color-dot').forEach(dot => {
+      dot.addEventListener('click', () => {
+        document.querySelectorAll('.color-dot').forEach(d => {
+          d.classList.remove('scale-110', 'ring-2');
+          d.classList.add('ring-1');
+        });
+        dot.classList.add('scale-110', 'ring-2');
+        dot.classList.remove('ring-1');
+        activeColor = dot.dataset.color;
+      });
+    });
+
+    // Page Buttons
+    btnPrevPage.addEventListener('click', () => goToPage(currentPage - 1));
+    btnNextPage.addEventListener('click', () => goToPage(currentPage + 1));
+
+    // Zoom Buttons
+    btnZoomIn.addEventListener('click', () => {
+      currentScale = Math.min(2.2, currentScale + 0.15);
+      renderPage(currentPage);
+    });
+    btnZoomOut.addEventListener('click', () => {
+      currentScale = Math.max(0.75, currentScale - 0.15);
+      renderPage(currentPage);
+    });
+
+    // Undo & Clear
+    document.getElementById('btn-undo').addEventListener('click', undoLastStroke);
+    document.getElementById('btn-clear-page').addEventListener('click', clearCurrentPageStrokes);
+
+    // Resize Handler
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        renderPage(currentPage);
+      }, 200);
+    });
+
+    // ---------------------------------------------------------------------------
+    // 10. INITIAL BOOTSTRAP
+    // ---------------------------------------------------------------------------
+    window.addEventListener('DOMContentLoaded', () => {
+      initRealtimeSync();
+
+      if (initialDocUrl && initialDocUrl.startsWith('http')) {
+        loadPdfDocument(initialDocUrl);
+      } else {
+        createBlankWhiteCanvas();
+      }
+    });
+  </script>
+</body>
+</html>
